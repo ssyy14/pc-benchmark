@@ -1,26 +1,49 @@
-import { parentPort } from 'worker_threads'
+import { parentPort, Worker } from 'worker_threads'
 
 function postProgress(phase: string, progress: number, metrics?: Record<string, number>) {
   parentPort?.postMessage({ type: 'gpu', phase, progress, metrics })
 }
 
-function matrixMultiply(size: number): number {
-  const totalOps = 2 * size * size * size
-  const a = new Float64Array(size * size).fill(1)
-  const b = new Float64Array(size * size).fill(1)
-  const c = new Float64Array(size * size)
+// True parallel matrix multiply using sub-workers
+function runMatrixSubWorker(rows: number, size: number): Promise<void> {
+  const code = `
+    const { parentPort } = require('worker_threads')
+    parentPort.on('message', ({ rows, size }) => {
+      const a = new Float64Array(rows * size).fill(1.5)
+      const b = new Float64Array(size * size).fill(1.5)
+      const c = new Float64Array(rows * size)
+      for (let i = 0; i < rows; i++) {
+        for (let k = 0; k < size; k++) {
+          const aik = a[i * size + k]
+          for (let j = 0; j < size; j++) {
+            c[i * size + j] += aik * b[k * size + j]
+          }
+        }
+      }
+      parentPort.postMessage('done')
+      process.exit(0)
+    })
+  `
+  return new Promise((resolve, reject) => {
+    const w = new Worker(code, { eval: true })
+    w.on('message', () => resolve())
+    w.on('error', reject)
+    w.postMessage({ rows, size })
+  })
+}
+
+async function parallelMatrixMultiply(size: number, threads: number): Promise<number> {
+  const totalOps = 2 * size * size * size // 2N³ FLOPs
+  const rowsPerThread = Math.floor(size / threads)
 
   const start = performance.now()
-  for (let i = 0; i < size; i++) {
-    for (let k = 0; k < size; k++) {
-      const aik = a[i * size + k]
-      for (let j = 0; j < size; j++) {
-        c[i * size + j] += aik * b[k * size + j]
-      }
-    }
+  const tasks: Promise<void>[] = []
+  for (let t = 0; t < threads; t++) {
+    tasks.push(runMatrixSubWorker(rowsPerThread, size))
   }
+  await Promise.all(tasks)
   const elapsed = performance.now() - start
-  return totalOps / (elapsed / 1000) / 1e9
+  return totalOps / (elapsed / 1000) / 1e9 // GFLOPS
 }
 
 function memoryBandwidthBenchmark(sizeMB: number): number {
@@ -34,13 +57,15 @@ function memoryBandwidthBenchmark(sizeMB: number): number {
 }
 
 async function run(): Promise<void> {
+  const os = await import('os')
+  const cores = os.cpus().length
   const startTime = performance.now()
 
-  postProgress('GPU compute (matrix multiply)', 15)
-  const computeGFLOPS = matrixMultiply(512)
-  postProgress('GPU compute simulation', 50, { computeGFLOPS: Math.round(computeGFLOPS * 100) / 100 })
+  postProgress(`Parallel matrix multiply (${cores} threads)`, 20)
+  const computeGFLOPS = await parallelMatrixMultiply(1024, cores)
+  postProgress('Matrix multiply complete', 60, { computeGFLOPS: Math.round(computeGFLOPS * 100) / 100 })
 
-  postProgress('Memory bandwidth', 55)
+  postProgress('Memory bandwidth', 70)
   const memBandwidth = memoryBandwidthBenchmark(256)
   postProgress('Memory bandwidth', 100, {
     computeGFLOPS: Math.round(computeGFLOPS * 100) / 100,

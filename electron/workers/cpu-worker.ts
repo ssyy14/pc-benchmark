@@ -1,9 +1,11 @@
-import { parentPort } from 'worker_threads'
+import { parentPort, Worker } from 'worker_threads'
 import crypto from 'crypto'
 
 function postProgress(phase: string, progress: number, metrics?: Record<string, number>) {
   parentPort?.postMessage({ type: 'cpu', phase, progress, metrics })
 }
+
+// --- Single-core tests ---
 
 function primeSieve(limit: number): number {
   const sieve = new Uint8Array(limit + 1).fill(1)
@@ -42,35 +44,71 @@ function cryptoBenchmark(durationMs: number): number {
   return totalBytes / (1024 * 1024) / (durationMs / 1000)
 }
 
+// --- True multi-core: spawn sub-workers ---
+
+function runSubWorker(chunk: number): Promise<number> {
+  // Each sub-worker runs primeSieve on its chunk in a REAL separate thread
+  const code = `
+    const { parentPort } = require('worker_threads')
+    parentPort.on('message', (limit) => {
+      const sieve = new Uint8Array(limit + 1).fill(1)
+      sieve[0] = sieve[1] = 0
+      for (let i = 2; i * i <= limit; i++) {
+        if (sieve[i]) for (let j = i * i; j <= limit; j += i) sieve[j] = 0
+      }
+      let count = 0
+      for (let i = 2; i <= limit; i++) if (sieve[i]) count++
+      parentPort.postMessage(count)
+      process.exit(0)
+    })
+  `
+  return new Promise((resolve, reject) => {
+    const w = new Worker(code, { eval: true })
+    w.on('message', (count: number) => resolve(count))
+    w.on('error', reject)
+    w.postMessage(chunk)
+  })
+}
+
+async function runMultiCore(cores: number): Promise<number> {
+  const totalRange = 30_000_000
+  const chunkSize = Math.floor(totalRange / cores)
+
+  const start = performance.now()
+  const tasks: Promise<number>[] = []
+  for (let i = 0; i < cores; i++) {
+    tasks.push(runSubWorker(chunkSize))
+  }
+  const results = await Promise.all(tasks)
+  const elapsed = performance.now() - start
+  const totalOps = chunkSize * cores
+  // MOps/s = millions of numbers processed per second
+  return totalOps / (elapsed / 1000) / 1_000_000
+}
+
 async function run(): Promise<void> {
   const os = await import('os')
   const cores = os.cpus().length
 
+  // Phase 1: Single-core integer
   postProgress('Single-core integer (prime sieve)', 10)
   const t0 = performance.now()
-  const primeLimit = 10_000_000
-  primeSieve(primeLimit)
-  const singleCoreTime = performance.now() - t0
-  const singleCoreMOps = primeLimit / (singleCoreTime / 1000) / 1_000_000
-  postProgress('Single-core integer', 25, { singleCoreMOps })
+  primeSieve(10_000_000)
+  const singleCoreMOps = 10_000_000 / ((performance.now() - t0) / 1000) / 1_000_000
+  postProgress('Single-core integer', 20, { singleCoreMOps })
 
-  postProgress('Single-core floating-point (pi)', 30)
+  // Phase 2: Single-core float
+  postProgress('Single-core floating-point (π)', 25)
   computePi(200_000_000)
-  postProgress('Single-core floating-point', 45)
+  postProgress('Single-core floating-point', 35)
 
-  postProgress('Multi-core parallel', 50)
-  const t2 = performance.now()
-  const chunkSize = Math.floor(3_000_000 / cores)
-  const promises: Promise<number>[] = []
-  for (let i = 0; i < cores; i++) {
-    promises.push(new Promise((resolve) => { setImmediate(() => resolve(primeSieve(chunkSize))) }))
-  }
-  await Promise.all(promises)
-  const multiCoreTime = performance.now() - t2
-  const multiCoreMOps = (chunkSize * cores) / (multiCoreTime / 1000) / 1_000_000
-  postProgress('Multi-core parallel', 80, { singleCoreMOps, multiCoreMOps })
+  // Phase 3: True multi-core via sub-workers
+  postProgress(`Multi-core (${cores} threads)`, 40)
+  const multiCoreMOps = await runMultiCore(cores)
+  postProgress('Multi-core parallel', 75, { singleCoreMOps, multiCoreMOps })
 
-  postProgress('Crypto throughput (AES-256)', 85)
+  // Phase 4: Crypto
+  postProgress('Crypto throughput (AES-256)', 80)
   const cryptoMBps = cryptoBenchmark(3000)
   postProgress('Crypto throughput', 100, { singleCoreMOps, multiCoreMOps, cryptoMBps })
 

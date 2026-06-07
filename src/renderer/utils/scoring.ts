@@ -65,6 +65,14 @@ export function calculateDiskScore(metrics: Record<string, number>): number {
 }
 
 export function calculateGpuScore(metrics: Record<string, number>): number {
+  // Real GPU WebGL path (fps-based)
+  if (metrics.fps1080p) {
+    const fps1080 = normalizeScore(metrics.fps1080p, 120)
+    const fps720 = normalizeScore(metrics.fps720p || 0, 180)
+    const bw = normalizeScore(metrics.gpuBandwidthGBps || 0, 100)
+    return Math.round(fps1080 * 0.55 + fps720 * 0.15 + bw * 0.30)
+  }
+  // Fallback: CPU compute path
   const ref = REFERENCES.gpu
   const compute = normalizeScore(metrics.computeGFLOPS || 0, ref.computeGFLOPS)
   const bandwidth = normalizeScore(metrics.memoryBandwidthGBps || 0, ref.memoryBandwidthGBps)

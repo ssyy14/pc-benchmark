@@ -65,6 +65,7 @@ export const useBenchmarkStore = defineStore('benchmark', () => {
       case 'disk':
         return Math.round(norm(m.seqReadMBps || 0, 2000) * 0.25 + norm(m.seqWriteMBps || 0, 1000) * 0.20 + norm(m.randomReadIOPS || 0, 50000) * 0.30 + norm(m.randomWriteIOPS || 0, 30000) * 0.25)
       case 'gpu':
+        if (m.fps1080p) return Math.round(norm(m.fps1080p, 120) * 0.55 + norm(m.fps720p || 0, 180) * 0.15 + norm(m.gpuBandwidthGBps || 0, 100) * 0.30)
         return Math.round(norm(m.computeGFLOPS || 0, 2000) * 0.60 + norm(m.memoryBandwidthGBps || 0, 200) * 0.40)
       case 'graphics':
         return Math.round(norm(m.fps1080p || 0, 60) * 0.50 + norm(m.fps720p || 0, 90) * 0.30 + norm(m.fps480p || 0, 120) * 0.20)
