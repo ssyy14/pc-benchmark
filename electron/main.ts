@@ -22,8 +22,15 @@ function detectGPU(): { model: string; vendor: string } {
         'powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name }"',
         { timeout: 8000 }
       ).toString()
-      const names = out.trim().split('\n').filter(n => n.trim() && !n.includes('Microsoft') && !n.includes('Remote'))
-      const name = names[0]?.trim() || ''
+      const skipKeywords = ['Microsoft', 'Remote', 'Virtual', 'GameViewer', 'Mirror', 'Indirect']
+      const names = out.trim().split('\n')
+        .map(n => n.trim())
+        .filter(n => n && !skipKeywords.some(k => n.includes(k)))
+      // Prefer dedicated GPU: NVIDIA > AMD > Intel
+      const nvidia = names.find(n => n.includes('NVIDIA'))
+      const amd = names.find(n => n.includes('AMD') || n.includes('Radeon'))
+      const intel = names.find(n => n.includes('Intel') || n.includes('Arc'))
+      const name = nvidia || amd || intel || names[0]?.trim() || ''
       if (name) {
         const vendor = name.includes('NVIDIA') ? 'NVIDIA'
           : name.includes('AMD') || name.includes('Radeon') ? 'AMD'
