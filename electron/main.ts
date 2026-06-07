@@ -48,25 +48,78 @@ function detectGPU(): { model: string; vendor: string } {
   return { model: 'Unknown GPU', vendor: '' }
 }
 
+function getWindowsVersion(): { name: string; version: string } {
+  try {
+    const caption = execSync(
+      'powershell -NoProfile -Command "(Get-CimInstance Win32_OperatingSystem).Caption"',
+      { timeout: 5000 }
+    ).toString().trim()
+    // caption looks like "Microsoft Windows 11 Home China"
+    const name = caption.replace('Microsoft ', '')
+    // Get build number for version string
+    const build = execSync(
+      'powershell -NoProfile -Command "(Get-CimInstance Win32_OperatingSystem).Version"',
+      { timeout: 5000 }
+    ).toString().trim()
+    return { name, version: build }
+  } catch {
+    // Fallback: parse from os.release()
+    const rel = os.release()
+    const buildNum = rel.split('.').pop() || rel
+    const isWin11 = parseInt(buildNum) >= 22000
+    return { name: isWin11 ? 'Windows 11' : 'Windows 10', version: rel }
+  }
+}
+
+function detectMacOSVersion(): { name: string; version: string } {
+  try {
+    const ver = execSync('sw_vers -productVersion', { timeout: 3000 }).toString().trim()
+    const name = parseInt(ver) >= 15 ? 'macOS Sequoia'
+      : parseInt(ver) >= 14 ? 'macOS Sonoma'
+      : parseInt(ver) >= 13 ? 'macOS Ventura'
+      : `macOS ${ver}`
+    return { name, version: ver }
+  } catch {
+    return { name: 'macOS', version: os.release() }
+  }
+}
+
+function detectLinuxDistro(): { name: string; version: string } {
+  try {
+    const out = execSync('cat /etc/os-release', { timeout: 3000 }).toString()
+    const name = out.match(/^PRETTY_NAME="(.+)"$/m)?.[1] || 'Linux'
+    return { name, version: os.release() }
+  } catch {
+    return { name: 'Linux', version: os.release() }
+  }
+}
+
 function getSystemInfo(): SystemInfo {
   const cpus = os.cpus()
   const cpuModel = cpus[0]?.model?.trim() || 'Unknown'
-  // Count unique physical cores vs logical
   const totalThreads = cpus.length
-  // Estimate physical cores (most CPUs have 2 threads per core)
-  const coresPerSocket = Math.ceil(totalThreads / 2)
+  // Use Set to count unique cores (distinct by model+speed combo = physical)
+  // Better approach: count distinct core IDs
+  const coreIds = new Set(cpus.map(c => c.model + c.speed))
+  const physicalCores = Math.max(1, coreIds.size)
   const gpu = detectGPU()
+
+  let osInfo: { name: string; version: string }
+  if (process.platform === 'win32') {
+    osInfo = getWindowsVersion()
+  } else if (process.platform === 'darwin') {
+    osInfo = detectMacOSVersion()
+  } else {
+    osInfo = detectLinuxDistro()
+  }
 
   return {
     cpuModel,
-    cpuCores: coresPerSocket,
+    cpuCores: physicalCores,
     cpuThreads: totalThreads,
     totalMemoryGB: Math.round((os.totalmem() / (1024 ** 3)) * 10) / 10,
-    osName:
-      process.platform === 'win32' ? 'Windows'
-      : process.platform === 'darwin' ? 'macOS'
-      : 'Linux',
-    osVersion: os.release(),
+    osName: osInfo.name,
+    osVersion: osInfo.version,
     gpuModel: gpu.model,
     gpuVendor: gpu.vendor,
   }
