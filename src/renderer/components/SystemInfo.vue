@@ -14,11 +14,11 @@ defineProps<{
     <div v-else class="grid grid-cols-2 gap-4">
       <div>
         <div class="text-xs text-gray-400 mb-1">{{ $t('home.cpuModel') }}</div>
-        <div class="text-sm font-medium text-gray-800">{{ info.cpuModel }}</div>
+        <div class="text-sm font-medium text-gray-800 truncate" :title="info.cpuModel">{{ info.cpuModel }}</div>
       </div>
       <div>
         <div class="text-xs text-gray-400 mb-1">{{ $t('home.cpuCores') }}</div>
-        <div class="text-sm font-medium text-gray-800">{{ info.cpuThreads }} Threads</div>
+        <div class="text-sm font-medium text-gray-800">{{ info.cpuCores }} Cores / {{ info.cpuThreads }} Threads</div>
       </div>
       <div>
         <div class="text-xs text-gray-400 mb-1">{{ $t('home.totalMemory') }}</div>
@@ -27,6 +27,10 @@ defineProps<{
       <div>
         <div class="text-xs text-gray-400 mb-1">{{ $t('home.osName') }}</div>
         <div class="text-sm font-medium text-gray-800">{{ info.osName }} {{ info.osVersion }}</div>
+      </div>
+      <div class="col-span-2">
+        <div class="text-xs text-gray-400 mb-1">{{ $t('home.gpuModel') }}</div>
+        <div class="text-sm font-medium text-gray-800 truncate" :title="info.gpuModel">{{ info.gpuModel }}</div>
       </div>
     </div>
   </div>

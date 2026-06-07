@@ -4,6 +4,7 @@ import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { Worker } from 'worker_threads'
 import type { SystemInfo, BenchmarkResult, BenchmarkProgress } from './bridge'
 import os from 'os'
+import { execSync } from 'child_process'
 import Store from 'electron-store'
 
 const store = new Store<{ results: BenchmarkResult[] }>({
@@ -14,22 +15,48 @@ function createWorker(workerScript: string): Worker {
   return new Worker(join(__dirname, './workers', workerScript))
 }
 
+function detectGPU(): { model: string; vendor: string } {
+  try {
+    if (process.platform === 'win32') {
+      const out = execSync('wmic path win32_VideoController get name,AdapterRAM /format:csv', { timeout: 5000 }).toString()
+      const lines = out.trim().split('\n').filter(l => l.includes(','))
+      for (const line of lines) {
+        const parts = line.split(',')
+        const name = parts[1]?.trim()
+        if (name && name !== 'Name' && !name.includes('Microsoft') && !name.includes('Remote')) {
+          const vendor = name.includes('NVIDIA') ? 'NVIDIA'
+            : name.includes('AMD') || name.includes('Radeon') ? 'AMD'
+            : name.includes('Intel') || name.includes('Arc') ? 'Intel'
+            : ''
+          return { model: name, vendor }
+        }
+      }
+    }
+  } catch { /* ignore */ }
+  return { model: 'Unknown GPU', vendor: '' }
+}
+
 function getSystemInfo(): SystemInfo {
   const cpus = os.cpus()
+  const cpuModel = cpus[0]?.model?.trim() || 'Unknown'
+  // Count unique physical cores vs logical
+  const totalThreads = cpus.length
+  // Estimate physical cores (most CPUs have 2 threads per core)
+  const coresPerSocket = Math.ceil(totalThreads / 2)
+  const gpu = detectGPU()
+
   return {
-    cpuModel: cpus[0]?.model || 'Unknown',
-    cpuCores: os.cpus().length,
-    cpuThreads: os.cpus().length,
+    cpuModel,
+    cpuCores: coresPerSocket,
+    cpuThreads: totalThreads,
     totalMemoryGB: Math.round((os.totalmem() / (1024 ** 3)) * 10) / 10,
     osName:
-      process.platform === 'win32'
-        ? 'Windows'
-        : process.platform === 'darwin'
-          ? 'macOS'
-          : 'Linux',
+      process.platform === 'win32' ? 'Windows'
+      : process.platform === 'darwin' ? 'macOS'
+      : 'Linux',
     osVersion: os.release(),
-    gpuModel: 'Detecting...',
-    gpuVendor: '',
+    gpuModel: gpu.model,
+    gpuVendor: gpu.vendor,
   }
 }
 
