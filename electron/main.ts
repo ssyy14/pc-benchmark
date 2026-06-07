@@ -11,7 +11,7 @@ const store = new Store<{ results: BenchmarkResult[] }>({
 })
 
 function createWorker(workerScript: string): Worker {
-  return new Worker(join(__dirname, '../workers', workerScript))
+  return new Worker(join(__dirname, './workers', workerScript))
 }
 
 function getSystemInfo(): SystemInfo {
