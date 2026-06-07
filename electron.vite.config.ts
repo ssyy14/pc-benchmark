@@ -9,7 +9,12 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          index: resolve(__dirname, 'electron/main.ts')
+          index: resolve(__dirname, 'electron/main.ts'),
+          'workers/cpu-worker': resolve(__dirname, 'electron/workers/cpu-worker.ts'),
+          'workers/memory-worker': resolve(__dirname, 'electron/workers/memory-worker.ts'),
+          'workers/disk-worker': resolve(__dirname, 'electron/workers/disk-worker.ts'),
+          'workers/gpu-worker': resolve(__dirname, 'electron/workers/gpu-worker.ts'),
+          'workers/graphics-worker': resolve(__dirname, 'electron/workers/graphics-worker.ts'),
         }
       }
     }
@@ -25,6 +30,7 @@ export default defineConfig({
     }
   },
   renderer: {
+    root: resolve(__dirname, 'src/renderer'),
     resolve: {
       alias: {
         '@': resolve(__dirname, 'src')
