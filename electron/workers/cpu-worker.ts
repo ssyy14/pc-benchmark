@@ -11,22 +11,31 @@ function primeSieve(limit: number): number {
   const sieve = new Uint8Array(limit + 1).fill(1)
   sieve[0] = sieve[1] = 0
   for (let i = 2; i * i <= limit; i++) {
-    if (sieve[i]) {
-      for (let j = i * i; j <= limit; j += i) sieve[j] = 0
-    }
+    if (sieve[i]) for (let j = i * i; j <= limit; j += i) sieve[j] = 0
   }
   let count = 0
   for (let i = 2; i <= limit; i++) if (sieve[i]) count++
   return count
 }
 
-function computePi(iterations: number): number {
-  let pi = 0, sign = 1
-  for (let i = 0; i < iterations; i++) {
-    pi += sign / (2 * i + 1)
-    sign = -sign
+// Heavy float: mandelbrot set iteration
+function mandelbrot(width: number, height: number, maxIter: number): number {
+  let total = 0
+  for (let py = 0; py < height; py++) {
+    const y0 = (py / height) * 3.5 - 2.0
+    for (let px = 0; px < width; px++) {
+      const x0 = (px / width) * 3.5 - 2.5
+      let x = 0, y = 0, iter = 0
+      while (x * x + y * y <= 4 && iter < maxIter) {
+        const xt = x * x - y * y + x0
+        y = 2 * x * y + y0
+        x = xt
+        iter++
+      }
+      total += iter
+    }
   }
-  return pi * 4
+  return total
 }
 
 function cryptoBenchmark(durationMs: number): number {
@@ -44,73 +53,128 @@ function cryptoBenchmark(durationMs: number): number {
   return totalBytes / (1024 * 1024) / (durationMs / 1000)
 }
 
-// --- True multi-core: spawn sub-workers ---
+// --- True multi-core: sub-workers with multiple workloads ---
 
-function runSubWorker(chunk: number): Promise<number> {
-  // Each sub-worker runs primeSieve on its chunk in a REAL separate thread
-  const code = `
-    const { parentPort } = require('worker_threads')
-    parentPort.on('message', (limit) => {
-      const sieve = new Uint8Array(limit + 1).fill(1)
-      sieve[0] = sieve[1] = 0
-      for (let i = 2; i * i <= limit; i++) {
-        if (sieve[i]) for (let j = i * i; j <= limit; j += i) sieve[j] = 0
+const SUB_WORKER_CODE = `
+const { parentPort } = require('worker_threads')
+const crypto = require('crypto')
+
+function primeSieve(limit) {
+  const sieve = new Uint8Array(limit + 1).fill(1)
+  sieve[0] = sieve[1] = 0
+  for (let i = 2; i * i <= limit; i++) {
+    if (sieve[i]) for (let j = i * i; j <= limit; j += i) sieve[j] = 0
+  }
+  let count = 0
+  for (let i = 2; i <= limit; i++) if (sieve[i]) count++
+  return count
+}
+
+function mandelbrot(w, h, maxIter) {
+  let total = 0
+  for (let py = 0; py < h; py++) {
+    const y0 = (py / h) * 3.5 - 2.0
+    for (let px = 0; px < w; px++) {
+      const x0 = (px / w) * 3.5 - 2.5
+      let x = 0, y = 0, iter = 0
+      while (x*x + y*y <= 4 && iter < maxIter) {
+        const xt = x*x - y*y + x0; y = 2*x*y + y0; x = xt; iter++
       }
-      let count = 0
-      for (let i = 2; i <= limit; i++) if (sieve[i]) count++
-      parentPort.postMessage(count)
-      process.exit(0)
-    })
-  `
+      total += iter
+    }
+  }
+  return total
+}
+
+// Matrix multiply (float64)
+function matMul(size) {
+  const a = new Float64Array(size * size)
+  const b = new Float64Array(size * size)
+  const c = new Float64Array(size * size)
+  for (let i = 0; i < size*size; i++) { a[i] = Math.random(); b[i] = Math.random() }
+  for (let i = 0; i < size; i++)
+    for (let k = 0; k < size; k++)
+      for (let j = 0; j < size; j++)
+        c[i*size+j] += a[i*size+k] * b[k*size+j]
+  return c[0]
+}
+
+parentPort.on('message', ({ chunk, rounds }) => {
+  let totalOps = 0
+  for (let r = 0; r < rounds; r++) {
+    totalOps += primeSieve(chunk)                     // integer
+    totalOps += mandelbrot(80, 60, 200)              // float
+    totalOps += matMul(60)                           // matrix
+  }
+  parentPort.postMessage(totalOps)
+  process.exit(0)
+})
+`
+
+function runSubWorker(chunk: number, rounds: number): Promise<number> {
   return new Promise((resolve, reject) => {
-    const w = new Worker(code, { eval: true })
-    w.on('message', (count: number) => resolve(count))
+    const w = new Worker(SUB_WORKER_CODE, { eval: true })
+    w.on('message', (ops: number) => resolve(ops))
     w.on('error', reject)
-    w.postMessage(chunk)
+    w.postMessage({ chunk, rounds })
   })
 }
 
-async function runMultiCore(cores: number): Promise<number> {
-  const totalRange = 30_000_000
-  const chunkSize = Math.floor(totalRange / cores)
+async function runMultiCoreBurn(cores: number, durationMs: number): Promise<number> {
+  // Each sub-worker processes a chunk repeatedly for the duration
+  const chunk = 3_000_000
+  const rounds = 20 // each round = sieve + mandelbrot + matmul
 
   const start = performance.now()
   const tasks: Promise<number>[] = []
   for (let i = 0; i < cores; i++) {
-    tasks.push(runSubWorker(chunkSize))
+    tasks.push(runSubWorker(chunk, rounds))
   }
-  const results = await Promise.all(tasks)
+  await Promise.all(tasks)
   const elapsed = performance.now() - start
-  const totalOps = chunkSize * cores
-  // MOps/s = millions of numbers processed per second
-  return totalOps / (elapsed / 1000) / 1_000_000
+  return (chunk * rounds * cores) / (elapsed / 1000) / 1_000_000
 }
 
 async function run(): Promise<void> {
   const os = await import('os')
   const cores = os.cpus().length
 
-  // Phase 1: Single-core integer
-  postProgress('Single-core integer (prime sieve)', 10)
+  // Phase 1: Single-core integer (bigger range)
+  postProgress('Single-core integer (prime sieve 50M)', 5)
   const t0 = performance.now()
-  primeSieve(10_000_000)
-  const singleCoreMOps = 10_000_000 / ((performance.now() - t0) / 1000) / 1_000_000
-  postProgress('Single-core integer', 20, { singleCoreMOps })
+  primeSieve(50_000_000)
+  const singleCoreMOps = 50_000_000 / ((performance.now() - t0) / 1000) / 1_000_000
+  postProgress('Single-core integer', 15, { singleCoreMOps })
 
-  // Phase 2: Single-core float
-  postProgress('Single-core floating-point (π)', 25)
-  computePi(200_000_000)
-  postProgress('Single-core floating-point', 35)
+  // Phase 2: Single-core float (mandelbrot)
+  postProgress('Single-core float (mandelbrot 240x180)', 20)
+  const t1 = performance.now()
+  mandelbrot(240, 180, 300)
+  const floatTime = (performance.now() - t1) / 1000
+  postProgress('Single-core float', 30, { singleCoreMOps })
 
-  // Phase 3: True multi-core via sub-workers
-  postProgress(`Multi-core (${cores} threads)`, 40)
-  const multiCoreMOps = await runMultiCore(cores)
-  postProgress('Multi-core parallel', 75, { singleCoreMOps, multiCoreMOps })
+  // Phase 3: TRUE multi-core burn — all cores 100%
+  postProgress(`Multi-core burn · ${cores} threads · sieve+mandelbrot+matrix`, 35)
+  const multiCoreMOps = await runMultiCoreBurn(cores, 5000)
+  postProgress('Multi-core complete', 70, { singleCoreMOps, multiCoreMOps })
 
-  // Phase 4: Crypto
-  postProgress('Crypto throughput (AES-256)', 80)
-  const cryptoMBps = cryptoBenchmark(3000)
-  postProgress('Crypto throughput', 100, { singleCoreMOps, multiCoreMOps, cryptoMBps })
+  // Phase 4: Crypto (longer)
+  postProgress('Crypto throughput (AES-256-CBC)', 75)
+  const cryptoMBps = cryptoBenchmark(5000)
+  postProgress('Crypto throughput', 95, { singleCoreMOps, multiCoreMOps, cryptoMBps })
+
+  // Phase 5: SHA-256 hash storm (single-core, different workload)
+  postProgress('SHA-256 hash storm', 97)
+  const hashData = Buffer.alloc(1024 * 1024)
+  const hashStart = performance.now()
+  let hashes = 0
+  while (performance.now() - hashStart < 2000) {
+    crypto.createHash('sha256').update(hashData).digest('hex')
+    hashes++
+  }
+  const hashMBps = (hashes * 1024 * 1024) / ((performance.now() - hashStart) / 1000) / (1024 * 1024)
+
+  postProgress('Complete', 100, { singleCoreMOps, multiCoreMOps, cryptoMBps, hashMBps })
 
   parentPort?.postMessage({
     type: 'cpu', phase: 'complete', progress: 100, done: true,
@@ -118,6 +182,7 @@ async function run(): Promise<void> {
       singleCoreMOps: Math.round(singleCoreMOps * 100) / 100,
       multiCoreMOps: Math.round(multiCoreMOps * 100) / 100,
       cryptoMBps: Math.round(cryptoMBps),
+      hashMBps: Math.round(hashMBps),
       duration: Math.round(performance.now() - t0),
     },
   })
