@@ -65,7 +65,17 @@ export function calculateDiskScore(metrics: Record<string, number>): number {
 }
 
 export function calculateGpuScore(metrics: Record<string, number>): number {
-  // Real GPU WebGL path (fps-based)
+  // Real GPU path: megapixels/sec (WebGL 4K burn-in)
+  if (metrics.gpuMpixPerSec) {
+    // Reference: 100,000 MPix/s ≈ RTX 3060 level
+    const mpix = normalizeScore(metrics.gpuMpixPerSec, 100_000)
+    const bw = normalizeScore(metrics.gpuBandwidthGBps || 0, 80)
+    const wg = metrics.webGpuGflops ? normalizeScore(metrics.webGpuGflops, 3000) : 0
+    const wgWeight = metrics.webGpuGflops ? 0.15 : 0
+    const mpixWeight = 0.70 - wgWeight
+    return Math.round(mpix * mpixWeight + bw * 0.30 + wg * wgWeight)
+  }
+  // Real GPU path: FPS-based (old WebGL test)
   if (metrics.fps1080p) {
     const fps1080 = normalizeScore(metrics.fps1080p, 120)
     const fps720 = normalizeScore(metrics.fps720p || 0, 180)
