@@ -2,7 +2,7 @@
 
 A cross-platform desktop application for benchmarking PC performance. Built with Electron + Vue 3.
 
-![License](https://img.shields.io/github/license/yourusername/pc-benchmark)
+![License](https://img.shields.io/github/license/ssyy14/pc-benchmark)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 
 ## Features
@@ -22,7 +22,7 @@ A cross-platform desktop application for benchmarking PC performance. Built with
 
 ## Installation
 
-Download the latest release from [Releases](https://github.com/yourusername/pc-benchmark/releases).
+Download the latest release from [Releases](https://github.com/ssyy14/pc-benchmark/releases).
 
 - **Windows:** Run `PC-Benchmark-Setup.exe`
 - **macOS:** Open `PC-Benchmark.dmg` and drag to Applications
@@ -38,7 +38,7 @@ Download the latest release from [Releases](https://github.com/yourusername/pc-b
 ### Setup
 
 ```bash
-git clone https://github.com/yourusername/pc-benchmark.git
+git clone https://github.com/ssyy14/pc-benchmark.git
 cd pc-benchmark
 npm install
 ```
