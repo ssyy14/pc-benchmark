@@ -18,24 +18,31 @@ function createWorker(workerScript: string): Worker {
 function detectGPU(): { model: string; vendor: string } {
   try {
     if (process.platform === 'win32') {
-      let out = ''
+      const out = execSync(
+        'powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name }"',
+        { timeout: 8000 }
+      ).toString()
+      const names = out.trim().split('\n').filter(n => n.trim() && !n.includes('Microsoft') && !n.includes('Remote'))
+      const name = names[0]?.trim() || ''
+      if (name) {
+        const vendor = name.includes('NVIDIA') ? 'NVIDIA'
+          : name.includes('AMD') || name.includes('Radeon') ? 'AMD'
+          : name.includes('Intel') || name.includes('Arc') ? 'Intel'
+          : ''
+        return { model: name, vendor }
+      }
+    } else if (process.platform === 'darwin') {
+      // macOS
+      const out = execSync('system_profiler SPDisplaysDataType | grep "Chipset Model"', { timeout: 5000 }).toString()
+      const name = out.split(':')[1]?.trim() || ''
+      if (name) return { model: name, vendor: 'Apple' }
+    } else {
+      // Linux
       try {
-        out = execSync('wmic path win32_VideoController get name /format:csv', { timeout: 5000 }).toString()
-      } catch {
-        // wmic removed in Win11 24H2, fallback to PowerShell
-        out = execSync('powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"', { timeout: 5000 }).toString()
-      }
-      const lines = out.trim().split('\n').filter(l => l.trim() && !l.includes('Node') && !l.includes('Name'))
-      for (const line of lines) {
-        const name = line.split(',')[1]?.trim() || line.trim()
-        if (name && !name.includes('Microsoft') && !name.includes('Remote')) {
-          const vendor = name.includes('NVIDIA') ? 'NVIDIA'
-            : name.includes('AMD') || name.includes('Radeon') ? 'AMD'
-            : name.includes('Intel') || name.includes('Arc') ? 'Intel'
-            : ''
-          return { model: name, vendor }
-        }
-      }
+        const out = execSync('lspci | grep -i vga', { timeout: 5000 }).toString()
+        const name = out.split(':')[2]?.trim() || 'Unknown'
+        if (name) return { model: name, vendor: '' }
+      } catch { /* ignore */ }
     }
   } catch { /* ignore */ }
   return { model: 'Unknown GPU', vendor: '' }
