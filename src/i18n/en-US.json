@@ -1,0 +1,57 @@
+{
+  "app": {
+    "title": "PC Benchmark",
+    "subtitle": "PC Performance Testing Tool"
+  },
+  "nav": {
+    "home": "System Info",
+    "cpu": "CPU Test",
+    "memory": "Memory Test",
+    "disk": "Disk Test",
+    "gpu": "GPU Test",
+    "graphics": "Graphics Test",
+    "report": "Report"
+  },
+  "home": {
+    "title": "System Information",
+    "startAll": "Run All Benchmarks",
+    "cpuModel": "CPU Model",
+    "cpuCores": "CPU Cores",
+    "totalMemory": "Total Memory",
+    "osName": "Operating System",
+    "gpuModel": "GPU Model"
+  },
+  "benchmark": {
+    "start": "Start Test",
+    "running": "Running...",
+    "completed": "Completed",
+    "score": "Score",
+    "duration": "Duration",
+    "notRun": "Not yet run",
+    "skipped": "Skipped",
+    "progress": "Progress"
+  },
+  "tier": {
+    "entry": "Entry",
+    "mainstream": "Mainstream",
+    "highPerf": "High-Perf",
+    "flagship": "Flagship",
+    "enthusiast": "Enthusiast"
+  },
+  "report": {
+    "title": "Test Report",
+    "overallScore": "Overall Score",
+    "radarChart": "Performance Radar",
+    "details": "Detailed Results",
+    "noData": "Please run benchmarks first"
+  },
+  "common": {
+    "seconds": "seconds",
+    "ms": "ms",
+    "gbps": "GB/s",
+    "mbps": "MB/s",
+    "iops": "IOPS",
+    "fps": "FPS",
+    "gflops": "GFLOPS"
+  }
+}

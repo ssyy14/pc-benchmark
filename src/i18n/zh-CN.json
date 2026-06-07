@@ -1,0 +1,57 @@
+{
+  "app": {
+    "title": "PC Benchmark",
+    "subtitle": "电脑性能测试工具"
+  },
+  "nav": {
+    "home": "系统信息",
+    "cpu": "CPU 测试",
+    "memory": "内存测试",
+    "disk": "磁盘测试",
+    "gpu": "GPU 测试",
+    "graphics": "图形测试",
+    "report": "测试报告"
+  },
+  "home": {
+    "title": "系统信息",
+    "startAll": "一键测试全部",
+    "cpuModel": "CPU 型号",
+    "cpuCores": "CPU 核心",
+    "totalMemory": "内存大小",
+    "osName": "操作系统",
+    "gpuModel": "显卡型号"
+  },
+  "benchmark": {
+    "start": "开始测试",
+    "running": "测试中...",
+    "completed": "测试完成",
+    "score": "得分",
+    "duration": "耗时",
+    "notRun": "尚未测试",
+    "skipped": "已跳过",
+    "progress": "进度"
+  },
+  "tier": {
+    "entry": "入门",
+    "mainstream": "主流",
+    "highPerf": "高性能",
+    "flagship": "旗舰",
+    "enthusiast": "发烧级"
+  },
+  "report": {
+    "title": "测试报告",
+    "overallScore": "综合得分",
+    "radarChart": "性能雷达图",
+    "details": "详细结果",
+    "noData": "请先运行测试"
+  },
+  "common": {
+    "seconds": "秒",
+    "ms": "毫秒",
+    "gbps": "GB/s",
+    "mbps": "MB/s",
+    "iops": "IOPS",
+    "fps": "FPS",
+    "gflops": "GFLOPS"
+  }
+}
