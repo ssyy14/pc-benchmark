@@ -18,12 +18,17 @@ function createWorker(workerScript: string): Worker {
 function detectGPU(): { model: string; vendor: string } {
   try {
     if (process.platform === 'win32') {
-      const out = execSync('wmic path win32_VideoController get name,AdapterRAM /format:csv', { timeout: 5000 }).toString()
-      const lines = out.trim().split('\n').filter(l => l.includes(','))
+      let out = ''
+      try {
+        out = execSync('wmic path win32_VideoController get name /format:csv', { timeout: 5000 }).toString()
+      } catch {
+        // wmic removed in Win11 24H2, fallback to PowerShell
+        out = execSync('powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"', { timeout: 5000 }).toString()
+      }
+      const lines = out.trim().split('\n').filter(l => l.trim() && !l.includes('Node') && !l.includes('Name'))
       for (const line of lines) {
-        const parts = line.split(',')
-        const name = parts[1]?.trim()
-        if (name && name !== 'Name' && !name.includes('Microsoft') && !name.includes('Remote')) {
+        const name = line.split(',')[1]?.trim() || line.trim()
+        if (name && !name.includes('Microsoft') && !name.includes('Remote')) {
           const vendor = name.includes('NVIDIA') ? 'NVIDIA'
             : name.includes('AMD') || name.includes('Radeon') ? 'AMD'
             : name.includes('Intel') || name.includes('Arc') ? 'Intel'
