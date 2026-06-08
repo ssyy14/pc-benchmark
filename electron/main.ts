@@ -161,8 +161,6 @@ function runSingleBenchmark(
       cpu: 'cpu-worker.js',
       memory: 'memory-worker.js',
       disk: 'disk-worker.js',
-      gpu: 'gpu-worker.js',
-      graphics: 'graphics-worker.js',
     }
     const script = workerMap[type]
     if (!script) {
@@ -226,24 +224,11 @@ ipcMain.handle('benchmark:run', async (event, type: string) => {
   return result
 })
 
-ipcMain.handle('benchmark:run-all', async (event) => {
-  const mainWindow = BrowserWindow.fromWebContents(event.sender)
-  if (!mainWindow) throw new Error('No window')
-  const types = ['cpu', 'memory', 'disk', 'gpu', 'graphics']
-  const results: BenchmarkResult[] = []
-  for (const type of types) {
-    try {
-      const r = await runSingleBenchmark(type, mainWindow)
-      results.push(r)
-    } catch {
-      results.push({ type, score: 0, metrics: {}, duration: 0, skipped: true })
-    }
-  }
+ipcMain.handle('results:get', () => store.get('results', []) as BenchmarkResult[])
+ipcMain.handle('results:save', (_event, results: BenchmarkResult[]) => {
   store.set('results', results)
-  return results
+  return true
 })
-
-ipcMain.handle('results:get', () => store.get('results', []))
 ipcMain.handle('results:clear', () => {
   store.set('results', [])
   return true

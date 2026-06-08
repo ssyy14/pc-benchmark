@@ -6,8 +6,6 @@ const api: BenchmarkAPI = {
 
   runBenchmark: (type: string) => ipcRenderer.invoke('benchmark:run', type),
 
-  runAllBenchmarks: () => ipcRenderer.invoke('benchmark:run-all'),
-
   onProgress: (callback) => {
     ipcRenderer.on('benchmark:progress', (_event, data) => callback(data))
   },
@@ -17,6 +15,8 @@ const api: BenchmarkAPI = {
   },
 
   getStoredResults: () => ipcRenderer.invoke('results:get'),
+
+  saveResults: (results) => ipcRenderer.invoke('results:save', results),
 
   clearStoredResults: () => ipcRenderer.invoke('results:clear'),
 }

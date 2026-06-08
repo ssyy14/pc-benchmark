@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useBenchmarkStore } from '../stores/benchmark'
 import ScoreCard from '../components/ScoreCard.vue'
@@ -13,6 +13,16 @@ use([RadarChart, TitleComponent, TooltipComponent, LegendComponent, RadarCompone
 
 const { t } = useI18n()
 const benchmark = useBenchmarkStore()
+
+onMounted(async () => {
+  // Load stored results if store is empty (direct navigation to /report)
+  if (benchmark.results.length === 0) {
+    try {
+      const stored = await window.benchmarkAPI.getStoredResults()
+      if (stored && stored.length > 0) benchmark.setResults(stored)
+    } catch { /* not in Electron */ }
+  }
+})
 
 const hasResults = computed(() => benchmark.results.length > 0)
 

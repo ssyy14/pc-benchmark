@@ -29,9 +29,9 @@ export interface SystemInfo {
 export interface BenchmarkAPI {
   getSystemInfo: () => Promise<SystemInfo>
   runBenchmark: (type: string) => Promise<BenchmarkResult>
-  runAllBenchmarks: () => Promise<BenchmarkResult[]>
   onProgress: (callback: (progress: BenchmarkProgress) => void) => void
   removeProgressListener: () => void
   getStoredResults: () => Promise<BenchmarkResult[]>
+  saveResults: (results: BenchmarkResult[]) => Promise<void>
   clearStoredResults: () => Promise<void>
 }

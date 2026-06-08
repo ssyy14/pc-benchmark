@@ -10,15 +10,24 @@ A cross-platform desktop application for benchmarking PC performance. Built with
 - ⚡ **CPU Benchmark** — Single-core, multi-core, and crypto performance
 - 🧠 **Memory Benchmark** — Read/write bandwidth and latency
 - 💾 **Disk Benchmark** — Sequential and random 4K read/write
-- 🎮 **GPU Benchmark** — Compute throughput and memory bandwidth
-- 🖼️ **Graphics Benchmark** — Rendering simulation at multiple resolutions
+- 🎮 **GPU Benchmark** — Real-time 4K WebGL procedural shader burn-in
+- 🏙️ **3D City Graphics Benchmark** — 200+ skyscrapers, PBR lighting, shadow mapping, dynamic sky
 - 📊 **Scoring System** — 0-10000 score with 5-tier ratings
-- 🌐 **Bilingual** — Chinese (中文) and English support
+- 🌐 **Bilingual** — Chinese / English support
 - 📈 **Radar Chart** — Visual performance overview
 
-## Screenshots
+## What's New in v2.0
 
-*(Add screenshots here after running the app)*
+| Feature | v1.0 | v2.0 |
+|---------|------|------|
+| Graphics Test | 2D particle system | 3D city with 200+ skyscrapers |
+| Lighting | Basic diffuse | PBR + real-time shadow mapping (4096×4096) |
+| Sky | Solid color | Procedural blue sky with animated clouds |
+| Sun | Static | Dynamic orbit with golden-hour color shift |
+| Roads | None | Major avenues + side streets |
+| Score Metric | Avg FPS | Peak GPU FPS (raw throughput) |
+| Building Detail | Flat boxes | Multi-tier setbacks + spire crowns + windows |
+| Package Size | Larger (dead code) | Cleaned up |
 
 ## Installation
 
@@ -30,50 +39,19 @@ Download the latest release from [Releases](https://github.com/ssyy14/pc-benchma
 
 ## Development
 
-### Prerequisites
-
-- Node.js 18+
-- npm
-
-### Setup
-
 ```bash
 git clone https://github.com/ssyy14/pc-benchmark.git
 cd pc-benchmark
 npm install
-```
-
-### Run in Development
-
-```bash
-npm run dev
-```
-
-### Build
-
-```bash
-npm run build
-```
-
-### Run Tests
-
-```bash
-npm test
+npm run dev      # Development
+npm run build    # Production build
+npm test         # Run tests
 ```
 
 ## Tech Stack
 
-- **Desktop Shell:** Electron 30+
-- **Frontend:** Vue 3 + Composition API + TypeScript
-- **Build:** Vite + electron-vite
-- **UI:** Naive UI + ECharts + UnoCSS
-- **i18n:** vue-i18n (Chinese + English)
-- **State:** Pinia
+Electron 30+, Vue 3, TypeScript, Vite, Naive UI, ECharts, Pinia, UnoCSS, WebGL2
 
 ## License
 
-MIT — see [LICENSE](LICENSE) file.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+MIT

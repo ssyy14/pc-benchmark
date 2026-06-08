@@ -13,8 +13,6 @@ export default defineConfig({
           'workers/cpu-worker': resolve(__dirname, 'electron/workers/cpu-worker.ts'),
           'workers/memory-worker': resolve(__dirname, 'electron/workers/memory-worker.ts'),
           'workers/disk-worker': resolve(__dirname, 'electron/workers/disk-worker.ts'),
-          'workers/gpu-worker': resolve(__dirname, 'electron/workers/gpu-worker.ts'),
-          'workers/graphics-worker': resolve(__dirname, 'electron/workers/graphics-worker.ts'),
         }
       }
     }

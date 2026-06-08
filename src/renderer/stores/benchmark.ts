@@ -1,5 +1,12 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import {
+  calculateCpuScore,
+  calculateMemoryScore,
+  calculateDiskScore,
+  calculateGpuScore,
+  calculateGraphicsScore,
+} from '../utils/scoring'
 
 export interface BenchmarkResult {
   type: string
@@ -48,35 +55,24 @@ export const useBenchmarkStore = defineStore('benchmark', () => {
     return map
   })
 
-  function norm(raw: number, ref: number, lowerIsBetter = false): number {
-    if (ref === 0) return 0
-    return Math.round(
-      Math.min(10000, Math.max(0, lowerIsBetter ? (ref / Math.max(raw, 0.001)) * 5000 : (raw / ref) * 5000))
-    )
+  const scoreCalculators: Record<string, (m: Record<string, number>) => number> = {
+    cpu: calculateCpuScore,
+    memory: calculateMemoryScore,
+    disk: calculateDiskScore,
+    gpu: calculateGpuScore,
+    graphics: calculateGraphicsScore,
   }
 
   function calcScoreForType(type: string, metrics: Record<string, number>): number {
-    const m = metrics
-    switch (type) {
-      case 'cpu':
-        return Math.round(norm(m.singleCoreMOps || 0, 5000) * 0.25 + norm(m.multiCoreMOps || 0, 20000) * 0.55 + norm(m.cryptoMBps || 0, 2000) * 0.20)
-      case 'memory':
-        return Math.round(norm(m.readBandwidthMBps || 0, 30 * 1024) * 0.35 + norm(m.writeBandwidthMBps || 0, 20 * 1024) * 0.25 + norm(m.latencyNs || 100, 80, true) * 0.40)
-      case 'disk':
-        return Math.round(norm(m.seqReadMBps || 0, 2000) * 0.25 + norm(m.seqWriteMBps || 0, 1000) * 0.20 + norm(m.randomReadIOPS || 0, 50000) * 0.30 + norm(m.randomWriteIOPS || 0, 30000) * 0.25)
-      case 'gpu':
-        if (m.gpuMpixPerSec) return Math.round(norm(m.gpuMpixPerSec, 100_000) * 0.70 + norm(m.gpuBandwidthGBps || 0, 80) * 0.30)
-        if (m.fps1080p) return Math.round(norm(m.fps1080p, 120) * 0.55 + norm(m.fps720p || 0, 180) * 0.15 + norm(m.gpuBandwidthGBps || 0, 100) * 0.30)
-        return Math.round(norm(m.computeGFLOPS || 0, 2000) * 0.60 + norm(m.memoryBandwidthGBps || 0, 200) * 0.40)
-      case 'graphics':
-        return Math.round(norm(m.fps1080p || 0, 60) * 0.50 + norm(m.fps720p || 0, 90) * 0.30 + norm(m.fps480p || 0, 120) * 0.20)
-      default:
-        return 0
-    }
+    return (scoreCalculators[type] || (() => 0))(metrics)
   }
 
   function setProgress(p: BenchmarkProgress) {
     currentProgress.value = p
+  }
+
+  function persist() {
+    try { window.benchmarkAPI?.saveResults(JSON.parse(JSON.stringify(results.value))) } catch { /* not in Electron */ }
   }
 
   function setResult(r: BenchmarkResult) {
@@ -84,6 +80,7 @@ export const useBenchmarkStore = defineStore('benchmark', () => {
     const idx = results.value.findIndex((x) => x.type === r.type)
     if (idx >= 0) results.value[idx] = scored
     else results.value.push(scored)
+    persist()
   }
 
   function setResults(arr: BenchmarkResult[]) {
@@ -91,6 +88,7 @@ export const useBenchmarkStore = defineStore('benchmark', () => {
       ...r,
       score: calcScoreForType(r.type, r.metrics),
     }))
+    persist()
   }
 
   function clearResults() {

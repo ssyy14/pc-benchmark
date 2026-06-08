@@ -50,8 +50,8 @@ describe('calculateDiskScore', () => {
     const score = calculateDiskScore({
       seqReadMBps: 2000,
       seqWriteMBps: 1000,
-      randomReadIOPS: 50000,
-      randomWriteIOPS: 30000,
+      randomReadIOPS: 30000,
+      randomWriteIOPS: 15000,
     })
     expect(score).toBeGreaterThan(4000)
     expect(score).toBeLessThan(6000)

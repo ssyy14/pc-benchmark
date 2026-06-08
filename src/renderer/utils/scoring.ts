@@ -19,12 +19,12 @@ const REFERENCES: Record<string, Record<string, number>> = {
   disk: {
     seqReadMBps: 2000,
     seqWriteMBps: 1000,
-    randomReadIOPS: 50000,
-    randomWriteIOPS: 30000,
+    randomReadIOPS: 30000,   // mid-range NVMe
+    randomWriteIOPS: 15000,
   },
   gpu: {
-    computeGFLOPS: 2000,
-    memoryBandwidthGBps: 200,
+    gpuMpixPerSec: 100_000,
+    gpuBandwidthGBps: 80,
   },
   graphics: {
     fps1080p: 60,
@@ -65,31 +65,26 @@ export function calculateDiskScore(metrics: Record<string, number>): number {
 }
 
 export function calculateGpuScore(metrics: Record<string, number>): number {
-  // Real GPU path: megapixels/sec (WebGL 4K burn-in)
-  if (metrics.gpuMpixPerSec) {
-    // Reference: 100,000 MPix/s ≈ RTX 3060 level
-    const mpix = normalizeScore(metrics.gpuMpixPerSec, 100_000)
-    const bw = normalizeScore(metrics.gpuBandwidthGBps || 0, 80)
-    const wg = metrics.webGpuGflops ? normalizeScore(metrics.webGpuGflops, 3000) : 0
-    const wgWeight = metrics.webGpuGflops ? 0.15 : 0
-    const mpixWeight = 0.70 - wgWeight
-    return Math.round(mpix * mpixWeight + bw * 0.30 + wg * wgWeight)
-  }
-  // Real GPU path: FPS-based (old WebGL test)
-  if (metrics.fps1080p) {
-    const fps1080 = normalizeScore(metrics.fps1080p, 120)
-    const fps720 = normalizeScore(metrics.fps720p || 0, 180)
-    const bw = normalizeScore(metrics.gpuBandwidthGBps || 0, 100)
-    return Math.round(fps1080 * 0.55 + fps720 * 0.15 + bw * 0.30)
-  }
-  // Fallback: CPU compute path
-  const ref = REFERENCES.gpu
-  const compute = normalizeScore(metrics.computeGFLOPS || 0, ref.computeGFLOPS)
-  const bandwidth = normalizeScore(metrics.memoryBandwidthGBps || 0, ref.memoryBandwidthGBps)
-  return Math.round(compute * 0.6 + bandwidth * 0.4)
+  // Megapixels/sec from WebGL 4K burn-in (the only GPU path now)
+  const mpix = normalizeScore(metrics.gpuMpixPerSec || 0, 100_000)  // 100,000 MPix/s ≈ RTX 3060
+  const bw = normalizeScore(metrics.gpuBandwidthGBps || 0, 80)
+  return Math.round(mpix * 0.70 + bw * 0.30)
 }
 
 export function calculateGraphicsScore(metrics: Record<string, number>): number {
+  // New 3D city benchmark: maxFPS = peak GPU throughput (300 FPS = 10000)
+  if (metrics.fpsMax !== undefined) {
+    return normalizeScore(metrics.fpsMax, 300)
+  }
+  // Legacy: avgFPS
+  if (metrics.fpsAvg !== undefined) {
+    return normalizeScore(metrics.fpsAvg, 120)
+  }
+  // Phase-based 3D city benchmark metrics
+  if (metrics.phase1Score !== undefined && metrics.phase2Score !== undefined) {
+    return Math.round(metrics.phase1Score * 0.6 + metrics.phase2Score * 0.4)
+  }
+  // Legacy particle system metrics (fallback)
   const ref = REFERENCES.graphics
   const fps1080 = normalizeScore(metrics.fps1080p || 0, ref.fps1080p)
   const fps720 = normalizeScore(metrics.fps720p || 0, ref.fps720p)
