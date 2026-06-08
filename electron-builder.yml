@@ -15,6 +15,7 @@ win:
       arch:
         - x64
   artifactName: ${productName}-${version}-Setup.${ext}
+  sign: null
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
