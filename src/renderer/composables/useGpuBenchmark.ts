@@ -1,111 +1,149 @@
-// Composable: Real WebGL GPU benchmark that runs in the renderer process
-// Extracted from GpuBenchmark.vue so it can be used from both individual page and "Run All"
-
+// Composable: 4-phase GPU benchmark
 import { ref, nextTick } from 'vue'
 import { useBenchmarkStore } from '../stores/benchmark'
 import { calculateGpuScore } from '../utils/scoring'
 
-export interface GpuBenchmarkState {
-  isRunning: ReturnType<typeof ref<boolean>>
-  progressPercent: ReturnType<typeof ref<number>>
-  progressPhase: ReturnType<typeof ref<string>>
-  liveValue: ReturnType<typeof ref<string>>
-  canvasRef: ReturnType<typeof ref<HTMLCanvasElement | null>>
-}
+// ─── Fillrate Phase Shaders ──────────────────────────────
+const FILL_VERT = `#version 300 es
+in vec2 aP;
+void main() { gl_Position = vec4(aP, 0, 1); }
+`
 
-const FRAG = `#version 300 es
+const FILL_FRAG = `#version 300 es
 precision highp float;
-in vec2 vUV; out vec4 o;
-uniform float uTime; uniform vec2 uRes;
+out vec4 o;
+uniform float uAlpha;
+void main() {
+  o = vec4(0.5, 0.2, 0.8, uAlpha);
+}
+`
 
-float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
-float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
-float fbm(vec2 p){float v=0.0,a=0.5;for(int i=0;i<8;i++){v+=a*noise(p);p*=2.3;a*=0.55;}return v;}
-
-void main(){
-  vec2 uv=vUV*(uRes/min(uRes.x,uRes.y));
-  float n0=fbm(uv*3.0+uTime*0.05);
-  float n1=fbm(uv*5.0+uTime*0.1+n0);
-  float n2=fbm(uv*7.0-uTime*0.07+n1*0.5);
-
-  float vol=0.0;
-  for(int s=0;s<10;s++){float t=float(s)*0.15;vol+=noise((uv*2.0-1.0+uTime*0.2)*t*3.0)*exp(-t*2.0);}
-  vol*=0.12;
-
-  vec3 N=normalize(vec3(fbm(uv*4.0+vec2(.005,0))-fbm(uv*4.0-vec2(.005,0)),fbm(uv*4.0+vec2(0,.005))-fbm(uv*4.0-vec2(0,.005)),.02));
-  vec3 L=normalize(vec3(sin(uTime)*3.0,cos(uTime*.7)*3.0,4.0)-vec3(uv*4.0-2.0,2.0));
-  float dif=max(dot(N,L),0.0)*.4;
-  float sp=pow(max(dot(reflect(-L,N),vec3(0,0,1)),0.0),64.0)*.5;
-  float ao=1.0-n2*.4;
-  float fr=pow(1.0-abs(N.z),4.0);
-
-  vec3 metal=mix(vec3(.8,.5,.2),vec3(.2,.5,.9),sin(uv.x*20.0+n0*3.0)*.5+.5);
-  vec3 col=mix(vec3(.05,.06,.09),metal,fr*(.5+n0*.5));
-
-  col+=dif*vec3(1.0,.85,.6)*ao;
-  col+=sp*vec3(1.0,.9,.7);
-  col+=vol*vec3(1.0,.95,.85);
-  col+=n0*vec3(.15,.1,.25)*.15;
-  col+=n1*vec3(.05,.15,.1)*.1;
-  col+=n2*vec3(.2,.05,.1)*.1;
-  col+=hash(uv*uRes+uTime)*.02;
-  col*=1.0-length(vUV-.5)*.4;
-
-  col=(col*(2.51*col+.03))/(col*(2.43*col+.59)+.14);
-  col=pow(col,vec3(1./2.2));
-  o=vec4(col,1.0);
-}`
-
-const VERT = `#version 300 es
-in vec2 aP; in vec2 aUV; out vec2 vUV;
-void main(){vUV=aUV;gl_Position=vec4(aP,0,1);}`
-
-function compileShader(gl: WebGL2RenderingContext, type: number, src: string): WebGLShader {
-  const s = gl.createShader(type)!
-  gl.shaderSource(s, src); gl.compileShader(s)
-  return s
+// ─── Phase Runner Types ──────────────────────────────────
+interface PhaseResult {
+  phase: string
+  metric: string
+  value: number
 }
 
-function runGpuBurn(gl: WebGL2RenderingContext, durationMs: number): Promise<number> {
-  const p = gl.createProgram()!
-  gl.attachShader(p, compileShader(gl, gl.VERTEX_SHADER, VERT))
-  gl.attachShader(p, compileShader(gl, gl.FRAGMENT_SHADER, FRAG))
-  gl.linkProgram(p)
+interface PhaseOption {
+  width: number
+  height: number
+  setupGL: (gl: WebGL2RenderingContext) => void
+  drawFrame: (gl: WebGL2RenderingContext, now: number, draws: number) => void
+  computeMetric: (totalDrawCalls: number, width: number, height: number, elapsedSec: number) => PhaseResult
+}
 
-  const buf = gl.createBuffer()!
-  gl.bindBuffer(gl.ARRAY_BUFFER, buf)
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,0,0, 1,-1,1,0, -1,1,0,1, 1,1,1,1]), gl.STATIC_DRAW)
-  const aP = gl.getAttribLocation(p, 'aP'), aUV = gl.getAttribLocation(p, 'aUV')
-  gl.enableVertexAttribArray(aP); gl.vertexAttribPointer(aP, 2, gl.FLOAT, false, 16, 0)
-  gl.enableVertexAttribArray(aUV); gl.vertexAttribPointer(aUV, 2, gl.FLOAT, false, 16, 8)
-  gl.useProgram(p)
-  const uT = gl.getUniformLocation(p, 'uTime'), uR = gl.getUniformLocation(p, 'uRes')
-  gl.uniform2f(uR, gl.canvas.width, gl.canvas.height)
+function runPhase(
+  canvas: HTMLCanvasElement,
+  opt: PhaseOption,
+  durationMs: number,
+): Promise<PhaseResult> {
+  return new Promise((resolve, reject) => {
+    try {
+      canvas.width = opt.width
+      canvas.height = opt.height
+      const gl = canvas.getContext('webgl2', {
+        powerPreference: 'high-performance',
+        antialias: false,
+        desynchronized: true,
+      })
+      if (!gl) throw new Error('WebGL2 unavailable')
 
-  let draws = 0
-  const start = performance.now(), endTime = start + durationMs
+      opt.setupGL(gl)
 
-  return new Promise(resolve => {
-    function frame() {
-      const now = performance.now()
-      if (now >= endTime) {
-        const mpix = (gl.canvas.width * gl.canvas.height * draws) / 1_000_000
-        const elapsed = (now - start) / 1000
-        resolve(Math.round(mpix / elapsed))
-        return
+      let totalDrawCalls = 0
+      const start = performance.now()
+      const endTime = start + durationMs
+
+      const frame = () => {
+        try {
+          const now = performance.now()
+          if (now >= endTime) {
+            const elapsed = (now - start) / 1000
+            resolve(opt.computeMetric(totalDrawCalls, opt.width, opt.height, elapsed))
+            return
+          }
+          // Batch 250 draws per frame
+          for (let i = 0; i < 250; i++) {
+            totalDrawCalls++
+            opt.drawFrame(gl, now, totalDrawCalls)
+          }
+          gl.finish()
+          requestAnimationFrame(frame)
+        } catch (e) {
+          reject(e)
+        }
       }
-      for (let i = 0; i < 200; i++) {
-        draws++
-        gl.uniform1f(uT, now * 0.001 + i * 0.01)
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
-      }
-      gl.finish()
       requestAnimationFrame(frame)
+    } catch (e) {
+      reject(e)
     }
-    requestAnimationFrame(frame)
   })
 }
 
+// ─── Phase 1: Fillrate ──────────────────────────────────
+async function runFillratePhase(
+  canvas: HTMLCanvasElement,
+  durationMs: number,
+): Promise<PhaseResult> {
+  // Generate full-screen quad geometry
+  const quadVerts = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1])
+
+  return runPhase(
+    canvas,
+    {
+      width: 3840,
+      height: 2160,
+      setupGL(gl) {
+        // Compile shaders
+        const vs = gl.createShader(gl.VERTEX_SHADER)!
+        gl.shaderSource(vs, FILL_VERT)
+        gl.compileShader(vs)
+
+        const fs = gl.createShader(gl.FRAGMENT_SHADER)!
+        gl.shaderSource(fs, FILL_FRAG)
+        gl.compileShader(fs)
+
+        const prog = gl.createProgram()!
+        gl.attachShader(prog, vs)
+        gl.attachShader(prog, fs)
+        gl.linkProgram(prog)
+        gl.useProgram(prog)
+
+        // Setup geometry
+        const buf = gl.createBuffer()!
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf)
+        gl.bufferData(gl.ARRAY_BUFFER, quadVerts, gl.STATIC_DRAW)
+        const aP = gl.getAttribLocation(prog, 'aP')
+        gl.enableVertexAttribArray(aP)
+        gl.vertexAttribPointer(aP, 2, gl.FLOAT, false, 0, 0)
+
+        // Alpha blending for overdraw pressure
+        gl.enable(gl.BLEND)
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+
+        // Store uniform location
+        ;(gl as any).__uAlpha = gl.getUniformLocation(prog, 'uAlpha')
+      },
+      drawFrame(gl, now, draws) {
+        // Subtly vary alpha so driver can't optimize away blending
+        gl.uniform1f((gl as any).__uAlpha, 0.04 + Math.sin(draws * 0.1) * 0.01)
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+      },
+      computeMetric(totalDraws, w, h, elapsed) {
+        const mpix = (w * h * totalDraws) / 1_000_000
+        return {
+          phase: 'fillrate',
+          metric: 'fillrateMPix',
+          value: Math.round(mpix / elapsed),
+        }
+      },
+    },
+    durationMs,
+  )
+}
+
+// ─── Exports ─────────────────────────────────────────────
 export function useGpuBenchmark() {
   const benchmark = useBenchmarkStore()
   const isRunning = ref(false)
@@ -113,52 +151,12 @@ export function useGpuBenchmark() {
   const progressPhase = ref('')
   const liveValue = ref('')
   const canvasRef = ref<HTMLCanvasElement | null>(null)
-
-  function getGL(canvas: HTMLCanvasElement, width: number, height: number): WebGL2RenderingContext {
-    canvas.width = width
-    canvas.height = height
-    canvas.style.display = 'block'
-    const gl = canvas.getContext('webgl2', {
-      powerPreference: 'high-performance',
-      antialias: false,
-      desynchronized: true,
-    })
-    if (!gl) throw new Error('WebGL2 unavailable')
-    return gl
-  }
+  const currentPhaseIndex = ref(-1)
 
   async function run(canvas?: HTMLCanvasElement): Promise<void> {
-    isRunning.value = true; benchmark.isRunning = true; benchmark.runningType = 'gpu'
-    const startTime = performance.now()
-    let usedCanvas: HTMLCanvasElement | null = null
-
-    try {
-      progressPhase.value = '4K GPU Burn-in — watch the shader!'
-      progressPercent.value = 10
-      liveValue.value = 'Initializing...'
-      await nextTick()  // Wait for v-if to render the canvas
-
-      usedCanvas = canvas || canvasRef.value
-      if (!usedCanvas) throw new Error('No canvas available')
-      const gl = getGL(usedCanvas, 3840, 2160)
-      progressPercent.value = 15
-
-      const mpix = await runGpuBurn(gl, 6000)
-      liveValue.value = `${(mpix / 1000).toFixed(1)} GPix/s`
-      progressPercent.value = 100
-      progressPhase.value = 'Complete'
-      liveValue.value = ''
-
-      const fm = { gpuMpixPerSec: mpix, gpuBandwidthGBps: 0, duration: Math.round(performance.now() - startTime) }
-      benchmark.setResult({ type: 'gpu', score: calculateGpuScore(fm), metrics: fm, duration: fm.duration })
-    } catch (e: any) {
-      console.error('GPU benchmark failed:', e)
-      benchmark.setResult({ type: 'gpu', score: 0, metrics: {}, duration: 0, skipped: true })
-    } finally {
-      isRunning.value = false; benchmark.isRunning = false; benchmark.runningType = null
-      if (usedCanvas) usedCanvas.style.display = 'none'
-    }
+    // TODO: full orchestrator — Task 6
+    console.log('Only Phase 1 wired for now')
   }
 
-  return { isRunning, progressPercent, progressPhase, liveValue, canvasRef, run }
+  return { isRunning, progressPercent, progressPhase, liveValue, canvasRef, currentPhaseIndex, run }
 }
