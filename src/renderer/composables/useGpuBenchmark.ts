@@ -399,6 +399,207 @@ async function runComputePhase(
   )
 }
 
+// ─── Bandwidth Phase Shaders ─────────────────────────────
+const BW_VERT = `#version 300 es
+in vec2 aP;
+in vec2 aUV;
+out vec2 vUV;
+void main() {
+  vUV = aUV;
+  gl_Position = vec4(aP, 0, 1);
+}
+`
+
+const BW_FRAG = `#version 300 es
+precision highp float;
+in vec2 vUV;
+uniform sampler2D uTex0;
+uniform sampler2D uTex1;
+uniform sampler2D uTex2;
+uniform sampler2D uTex3;
+uniform float uTime;
+layout(location = 0) out vec4 o0;
+layout(location = 1) out vec4 o1;
+layout(location = 2) out vec4 o2;
+layout(location = 3) out vec4 o3;
+
+float hash(vec2 p) {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+void main() {
+  float t = uTime * 0.01;
+  // Jittered UV for cache-unfriendly access
+  vec2 uv0 = vUV + vec2(hash(vUV + t) - 0.5, hash(vUV - t) - 0.5) * 0.04;
+  vec2 uv1 = vUV + vec2(hash(vUV * 2.0 + t) - 0.5, hash(vUV * 3.0 - t) - 0.5) * 0.04;
+  vec2 uv2 = vUV + vec2(hash(vUV * 4.0 + t * 2.0) - 0.5, hash(vUV * 5.0 - t * 2.0) - 0.5) * 0.04;
+  vec2 uv3 = vUV + vec2(hash(vUV * 6.0 + t * 3.0) - 0.5, hash(vUV * 7.0 - t * 3.0) - 0.5) * 0.04;
+
+  // Multiple samples per texture for cache pressure
+  vec4 s0a = texture(uTex0, uv0);
+  vec4 s0b = texture(uTex0, uv0 + 0.008);
+  vec4 s0c = texture(uTex0, uv0 - 0.004);
+  vec4 s1a = texture(uTex1, uv1);
+  vec4 s1b = texture(uTex1, uv1 + 0.006);
+  vec4 s2a = texture(uTex2, uv2);
+  vec4 s2b = texture(uTex2, uv2 - 0.005);
+  vec4 s3a = texture(uTex3, uv3);
+  vec4 s3b = texture(uTex3, uv3 + 0.007);
+
+  // Write to all 4 color attachments
+  o0 = s0a * s0b + s0c;
+  o1 = s1a * s1b + s0a * 0.2;
+  o2 = s2a * s2b + s1a * 0.3;
+  o3 = s3a * s3b + s2a * 0.4;
+}
+`
+
+// ─── Phase 4: Memory Bandwidth (MRT) ────────────────────
+async function runBandwidthPhase(
+  canvas: HTMLCanvasElement,
+  durationMs: number,
+): Promise<PhaseResult> {
+  const W = 2560
+  const H = 1440
+  const TEX = 4096
+  const quadUV = new Float32Array([-1, -1, 0, 0, 1, -1, 1, 0, -1, 1, 0, 1, 1, 1, 1, 1])
+
+  return new Promise((resolve, reject) => {
+    try {
+      canvas.width = W
+      canvas.height = H
+      const gl = canvas.getContext('webgl2', {
+        powerPreference: 'high-performance',
+        antialias: false,
+        desynchronized: true,
+      })
+      if (!gl) throw new Error('WebGL2 unavailable')
+
+      // Compile shaders
+      const vs = gl.createShader(gl.VERTEX_SHADER)!
+      gl.shaderSource(vs, BW_VERT)
+      gl.compileShader(vs)
+
+      const fs = gl.createShader(gl.FRAGMENT_SHADER)!
+      gl.shaderSource(fs, BW_FRAG)
+      gl.compileShader(fs)
+
+      const prog = gl.createProgram()!
+      gl.attachShader(prog, vs)
+      gl.attachShader(prog, fs)
+      gl.linkProgram(prog)
+      gl.useProgram(prog)
+
+      // Upload quad
+      const buf = gl.createBuffer()!
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf)
+      gl.bufferData(gl.ARRAY_BUFFER, quadUV, gl.STATIC_DRAW)
+      const aP = gl.getAttribLocation(prog, 'aP')
+      gl.enableVertexAttribArray(aP)
+      gl.vertexAttribPointer(aP, 2, gl.FLOAT, false, 16, 0)
+      const aUV = gl.getAttribLocation(prog, 'aUV')
+      gl.enableVertexAttribArray(aUV)
+      gl.vertexAttribPointer(aUV, 2, gl.FLOAT, false, 16, 8)
+
+      // Generate 4 noise textures (4096x4096 RGBA each = 256 MB total)
+      const textures: WebGLTexture[] = []
+      for (let t = 0; t < 4; t++) {
+        const tex = gl.createTexture()!
+        gl.activeTexture(gl.TEXTURE0 + t)
+        gl.bindTexture(gl.TEXTURE_2D, tex)
+
+        // Generate noise data on CPU
+        const size = TEX * TEX * 4
+        const data = new Uint8Array(size)
+        for (let i = 0; i < size; i++) {
+          data[i] = ((i * 1103515245 + 12345 + t * 98765) & 0x7fffffff) % 256
+        }
+
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, TEX, TEX, 0, gl.RGBA, gl.UNSIGNED_BYTE, data)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
+        gl.generateMipmap(gl.TEXTURE_2D)
+
+        textures.push(tex)
+      }
+      // Bind sampler uniforms
+      gl.uniform1i(gl.getUniformLocation(prog, 'uTex0'), 0)
+      gl.uniform1i(gl.getUniformLocation(prog, 'uTex1'), 1)
+      gl.uniform1i(gl.getUniformLocation(prog, 'uTex2'), 2)
+      gl.uniform1i(gl.getUniformLocation(prog, 'uTex3'), 3)
+
+      const uTimeLoc = gl.getUniformLocation(prog, 'uTime')
+
+      // Create FBO with 4 color attachments
+      const fbo = gl.createFramebuffer()!
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo)
+
+      const colorTargets: WebGLTexture[] = []
+      const attachmentPoints: number[] = []
+      for (let i = 0; i < 4; i++) {
+        const colorTex = gl.createTexture()!
+        gl.bindTexture(gl.TEXTURE_2D, colorTex)
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, colorTex, 0)
+        colorTargets.push(colorTex)
+        attachmentPoints.push(gl.COLOR_ATTACHMENT0 + i)
+      }
+      gl.drawBuffers(attachmentPoints)
+
+      if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+        reject(new Error('MRT framebuffer incomplete'))
+        return
+      }
+
+      (gl as any).__uTimeLoc = uTimeLoc
+      ;(gl as any).__bwProg = prog
+
+      // Per-draw data size for metric calculation
+      const BYTES_PER_PIXEL_PER_DRAW = 48 // 32 read + 16 write
+
+      let totalDrawCalls = 0
+      const start = performance.now()
+      const endTime = start + durationMs
+
+      const frame = () => {
+        try {
+          const now = performance.now()
+          if (now >= endTime) {
+            const elapsed = (now - start) / 1000
+            const totalBytes = totalDrawCalls * W * H * BYTES_PER_PIXEL_PER_DRAW
+            const gbps = totalBytes / 1_000_000_000 / elapsed
+            resolve({
+              phase: 'bandwidth',
+              metric: 'bandwidthGBps',
+              value: Math.round(gbps),
+            })
+            return
+          }
+          // Draw many passes — each stresses texture read + MRT write
+          for (let i = 0; i < 150; i++) {
+            totalDrawCalls++
+            gl.uniform1f(uTimeLoc, now + i * 0.01)
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+          }
+          gl.finish()
+          requestAnimationFrame(frame)
+        } catch (e) {
+          reject(e)
+        }
+      }
+      requestAnimationFrame(frame)
+    } catch (e) {
+      reject(e)
+    }
+  })
+}
+
 // ─── Exports ─────────────────────────────────────────────
 export function useGpuBenchmark() {
   const benchmark = useBenchmarkStore()
