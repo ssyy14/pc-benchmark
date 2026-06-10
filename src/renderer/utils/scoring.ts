@@ -40,9 +40,27 @@ export function normalizeScore(raw: number, reference: number, lowerIsBetter = f
 }
 
 export function calculateCpuScore(metrics: Record<string, number>): number {
+  // New 4-phase all-core metrics
+  if (metrics.intMOps !== undefined || metrics.fpMOps !== undefined
+    || metrics.mixedMOps !== undefined) {
+
+    const intScore = normalizeScore(metrics.intMOps || 0, 50_000)
+    const fpScore  = normalizeScore(metrics.fpMOps || 0, 30_000)
+    const crypto   = normalizeScore(metrics.cryptoMBps || 0, 5_000)
+    const mixed    = normalizeScore(metrics.mixedMOps || 0, 20_000)
+
+    return Math.round(
+      intScore * 0.25 +
+      fpScore  * 0.25 +
+      crypto   * 0.25 +
+      mixed    * 0.25
+    )
+  }
+
+  // Legacy fallback: old single/multi-core format
   const ref = REFERENCES.cpu
   const single = normalizeScore(metrics.singleCoreMOps || 0, ref.singleCoreMOps)
-  const multi = normalizeScore(metrics.multiCoreMOps || 0, ref.multiCoreMOps)
+  const multi  = normalizeScore(metrics.multiCoreMOps || 0, ref.multiCoreMOps)
   const crypto = normalizeScore(metrics.cryptoMBps || 0, ref.cryptoMBps)
   return Math.round(single * 0.25 + multi * 0.55 + crypto * 0.2)
 }

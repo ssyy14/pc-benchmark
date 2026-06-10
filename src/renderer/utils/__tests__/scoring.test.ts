@@ -59,6 +59,39 @@ describe('calculateDiskScore', () => {
   })
 })
 
+describe('calculateCpuScore', () => {
+  it('returns around 5000 for reference-level 4-phase CPU', () => {
+    const score = calculateCpuScore({
+      intMOps: 50000,
+      fpMOps: 30000,
+      cryptoMBps: 5000,
+      mixedMOps: 20000,
+    })
+    expect(score).toBeGreaterThan(4000)
+    expect(score).toBeLessThan(6000)
+  })
+
+  it('handles zero metrics gracefully', () => {
+    const score = calculateCpuScore({
+      intMOps: 0,
+      fpMOps: 0,
+      cryptoMBps: 0,
+      mixedMOps: 0,
+    })
+    expect(score).toBe(0)
+  })
+
+  it('falls back to old format if new metrics missing', () => {
+    const score = calculateCpuScore({
+      singleCoreMOps: 5000,
+      multiCoreMOps: 20000,
+      cryptoMBps: 2000,
+    })
+    expect(score).toBeGreaterThan(4000)
+    expect(score).toBeLessThan(6000)
+  })
+})
+
 describe('calculateGpuScore', () => {
   it('returns around 5000 for reference-level 4-phase GPU', () => {
     const score = calculateGpuScore({
