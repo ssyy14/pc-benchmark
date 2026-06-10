@@ -611,8 +611,71 @@ export function useGpuBenchmark() {
   const currentPhaseIndex = ref(-1)
 
   async function run(canvas?: HTMLCanvasElement): Promise<void> {
-    // TODO: full orchestrator — Task 6
-    console.log('Only Phase 1 wired for now')
+    isRunning.value = true
+    benchmark.isRunning = true
+    benchmark.runningType = 'gpu'
+
+    const usedCanvas = canvas || canvasRef.value
+    if (!usedCanvas) {
+      isRunning.value = false
+      benchmark.isRunning = false
+      benchmark.runningType = null
+      return
+    }
+
+    const startTime = performance.now()
+    const phases: Array<{
+      name: string
+      icon: string
+      fn: (c: HTMLCanvasElement, d: number) => Promise<PhaseResult>
+      duration: number
+    }> = [
+      { name: 'Fillrate',   icon: '🔴', fn: runFillratePhase,   duration: 5000  },
+      { name: 'Geometry',   icon: '🟡', fn: runGeometryPhase,   duration: 6000  },
+      { name: 'Compute',    icon: '🟢', fn: runComputePhase,    duration: 8000  },
+      { name: 'Bandwidth',  icon: '🔵', fn: runBandwidthPhase,  duration: 6000  },
+    ]
+
+    const metrics: Record<string, number> = {}
+
+    try {
+      for (let i = 0; i < phases.length; i++) {
+        const ph = phases[i]
+        currentPhaseIndex.value = i
+
+        progressPhase.value = `${ph.icon} Phase ${i + 1}/4: ${ph.name}`
+        progressPercent.value = (i / phases.length) * 100
+        liveValue.value = 'Initializing...'
+
+        await nextTick()
+
+        const result = await ph.fn(usedCanvas, ph.duration)
+        metrics[result.metric] = result.value
+
+        progressPercent.value = ((i + 1) / phases.length) * 100
+        liveValue.value = `${result.value.toLocaleString()} ${result.metric === 'bandwidthGBps' ? 'GB/s' : result.metric === 'geometryMTri' ? 'MTri/s' : 'MPix/s'}`
+      }
+
+      progressPhase.value = 'Complete'
+      liveValue.value = ''
+      progressPercent.value = 100
+
+      const duration = Math.round(performance.now() - startTime)
+      benchmark.setResult({
+        type: 'gpu',
+        score: calculateGpuScore({ ...metrics, duration }),
+        metrics: { ...metrics, duration },
+        duration,
+      })
+    } catch (e: any) {
+      console.error('GPU benchmark failed:', e)
+      benchmark.setResult({ type: 'gpu', score: 0, metrics: {}, duration: 0, skipped: true })
+    } finally {
+      currentPhaseIndex.value = -1
+      isRunning.value = false
+      benchmark.isRunning = false
+      benchmark.runningType = null
+    }
   }
 
   return { isRunning, progressPercent, progressPhase, liveValue, canvasRef, currentPhaseIndex, run }
