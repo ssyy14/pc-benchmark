@@ -101,14 +101,39 @@ function detectLinuxDistro(): { name: string; version: string } {
   }
 }
 
+function detectPhysicalCores(): number {
+  try {
+    if (process.platform === 'win32') {
+      const out = execSync(
+        'powershell -NoProfile -Command "(Get-CimInstance Win32_Processor).NumberOfCores"',
+        { timeout: 5000 }
+      ).toString().trim()
+      // May return multiple lines for multi-socket; sum them
+      const cores = out.split('\n').reduce((sum, line) => sum + (parseInt(line) || 0), 0)
+      if (cores > 0) return cores
+    } else if (process.platform === 'darwin') {
+      const out = execSync('sysctl -n hw.physicalcpu', { timeout: 3000 }).toString().trim()
+      const count = parseInt(out) || 0
+      if (count > 0) return count
+    } else {
+      // Linux
+      try {
+        const coresPerSocket = execSync('lscpu | grep "^Core(s) per socket"', { timeout: 3000 }).toString()
+        const socketCount = execSync('lscpu | grep "^Socket(s):"', { timeout: 3000 }).toString()
+        const c = parseInt(coresPerSocket.match(/\d+/)?.[0] || '0')
+        const s = parseInt(socketCount.match(/\d+/)?.[0] || '1')
+        if (c > 0) return c * s
+      } catch { /* fall through */ }
+    }
+  } catch { /* fall through */ }
+  return Math.max(1, os.cpus().length)
+}
+
 function getSystemInfo(): SystemInfo {
   const cpus = os.cpus()
   const cpuModel = cpus[0]?.model?.trim() || 'Unknown'
   const totalThreads = cpus.length
-  // Use Set to count unique cores (distinct by model+speed combo = physical)
-  // Better approach: count distinct core IDs
-  const coreIds = new Set(cpus.map(c => c.model + c.speed))
-  const physicalCores = Math.max(1, coreIds.size)
+  const physicalCores = detectPhysicalCores()
   const gpu = detectGPU()
 
   let osInfo: { name: string; version: string }
