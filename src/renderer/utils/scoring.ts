@@ -65,9 +65,26 @@ export function calculateDiskScore(metrics: Record<string, number>): number {
 }
 
 export function calculateGpuScore(metrics: Record<string, number>): number {
-  // Megapixels/sec from WebGL 4K burn-in (the only GPU path now)
-  const mpix = normalizeScore(metrics.gpuMpixPerSec || 0, 100_000)  // 100,000 MPix/s ≈ RTX 3060
-  const bw = normalizeScore(metrics.gpuBandwidthGBps || 0, 80)
+  // New 4-phase metrics (multi-phase GPU benchmark)
+  if (metrics.fillrateMPix !== undefined || metrics.geometryMTri !== undefined
+    || metrics.computeMPix !== undefined || metrics.bandwidthGBps !== undefined) {
+
+    const fillrate = normalizeScore(metrics.fillrateMPix || 0, 80_000)
+    const geometry = normalizeScore(metrics.geometryMTri || 0, 10_000)
+    const compute  = normalizeScore(metrics.computeMPix  || 0, 100_000)
+    const bandwidth = normalizeScore(metrics.bandwidthGBps || 0, 80)
+
+    return Math.round(
+      fillrate  * 0.25 +
+      geometry  * 0.25 +
+      compute   * 0.30 +
+      bandwidth * 0.20
+    )
+  }
+
+  // Legacy fallback: old single-phase format
+  const mpix = normalizeScore(metrics.gpuMpixPerSec || 0, 100_000)
+  const bw   = normalizeScore(metrics.gpuBandwidthGBps || 0, 80)
   return Math.round(mpix * 0.70 + bw * 0.30)
 }
 

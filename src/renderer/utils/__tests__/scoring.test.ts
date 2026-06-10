@@ -3,6 +3,7 @@ import {
   normalizeScore,
   calculateCpuScore,
   calculateDiskScore,
+  calculateGpuScore,
   calculateOverallScore,
   getTier,
 } from '../scoring'
@@ -52,6 +53,49 @@ describe('calculateDiskScore', () => {
       seqWriteMBps: 1000,
       randomReadIOPS: 30000,
       randomWriteIOPS: 15000,
+    })
+    expect(score).toBeGreaterThan(4000)
+    expect(score).toBeLessThan(6000)
+  })
+})
+
+describe('calculateGpuScore', () => {
+  it('returns around 5000 for reference-level 4-phase GPU', () => {
+    const score = calculateGpuScore({
+      fillrateMPix: 80000,
+      geometryMTri: 10000,
+      computeMPix: 100000,
+      bandwidthGBps: 80,
+    })
+    expect(score).toBeGreaterThan(4000)
+    expect(score).toBeLessThan(6000)
+  })
+
+  it('weights compute phase most heavily', () => {
+    const score = calculateGpuScore({
+      fillrateMPix: 8000,
+      geometryMTri: 1000,
+      computeMPix: 100000,
+      bandwidthGBps: 8,
+    })
+    expect(score).toBeGreaterThan(1500)
+    expect(score).toBeLessThan(4000)
+  })
+
+  it('handles zero metrics gracefully', () => {
+    const score = calculateGpuScore({
+      fillrateMPix: 0,
+      geometryMTri: 0,
+      computeMPix: 0,
+      bandwidthGBps: 0,
+    })
+    expect(score).toBe(0)
+  })
+
+  it('falls back to old gpuMpixPerSec if new metrics missing', () => {
+    const score = calculateGpuScore({
+      gpuMpixPerSec: 100000,
+      gpuBandwidthGBps: 80,
     })
     expect(score).toBeGreaterThan(4000)
     expect(score).toBeLessThan(6000)
