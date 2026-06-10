@@ -615,6 +615,9 @@ export function useGpuBenchmark() {
     benchmark.isRunning = true
     benchmark.runningType = 'gpu'
 
+    // Wait for v-if to render the canvas in the template
+    await nextTick()
+
     const usedCanvas = canvas || canvasRef.value
     if (!usedCanvas) {
       isRunning.value = false
@@ -622,6 +625,7 @@ export function useGpuBenchmark() {
       benchmark.runningType = null
       return
     }
+    usedCanvas.style.display = 'block'
 
     const startTime = performance.now()
     const phases: Array<{
