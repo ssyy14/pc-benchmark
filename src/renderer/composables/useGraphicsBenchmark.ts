@@ -219,8 +219,8 @@ export function useGraphicsBenchmark(){
         fc++
         const sunAngle=el*.08,sunH=Math.sin(el*.03)*.6+.2
         const sun=N([Math.cos(sunAngle)*.6,sunH,Math.sin(sunAngle)*.6])
-        const ang=el*.25,r=400+Math.sin(el*.1)*200,h=120+Math.cos(el*.15)*80
-        render([Math.cos(ang)*r,h,Math.sin(ang)*r],[0,50,0],sun,el);requestAnimationFrame(f)
+        const ang=el*.25,rad=400+Math.sin(el*.1)*200,h=120+Math.cos(el*.15)*80
+        render([Math.cos(ang)*rad,h,Math.sin(ang)*rad],[0,50,0],sun,el);requestAnimationFrame(f)
       }catch(e){console.error(e);r()}};requestAnimationFrame(f)})
 
       const avgF=fpsS.length>0?fpsS.reduce((a,b)=>a+b,0)/fpsS.length:30
