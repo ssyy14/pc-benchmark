@@ -254,6 +254,151 @@ async function runGeometryPhase(
   )
 }
 
+// ─── Compute Phase Shaders ───────────────────────────────
+const COMP_VERT = `#version 300 es
+in vec2 aP;
+in vec2 aUV;
+out vec2 vUV;
+void main() {
+  vUV = aUV;
+  gl_Position = vec4(aP, 0, 1);
+}
+`
+
+const COMP_FRAG = `#version 300 es
+precision highp float;
+in vec2 vUV;
+out vec4 o;
+uniform float uTime;
+uniform vec2 uRes;
+
+// Enhanced procedural shader — more math than original
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x),
+             mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
+}
+float fbm(vec2 p) {
+  float v = 0.0, a = 0.5;
+  for (int i = 0; i < 12; i++) { v += a * noise(p); p *= 2.3; a *= 0.52; }
+  return v;
+}
+
+void main() {
+  vec2 uv = vUV * (uRes / min(uRes.x, uRes.y));
+  float n0 = fbm(uv * 4.0 + uTime * 0.05);
+  float n1 = fbm(uv * 6.0 + uTime * 0.12 + n0);
+  float n2 = fbm(uv * 8.0 - uTime * 0.08 + n1 * 0.5);
+  float n3 = fbm(uv * 10.0 + uTime * 0.03 + n2 * 0.3);
+
+  // Volumetric accumulation — 15 steps (was 10)
+  float vol = 0.0;
+  for (int s = 0; s < 15; s++) {
+    float t = float(s) * 0.12;
+    vol += noise((uv * 2.0 - 1.0 + uTime * 0.25) * t * 3.5) * exp(-t * 2.0);
+  }
+  vol *= 0.1;
+
+  // Multi-frequency normals
+  vec3 N = normalize(vec3(
+    fbm(uv * 5.0 + vec2(.005, 0)) - fbm(uv * 5.0 - vec2(.005, 0)),
+    fbm(uv * 5.0 + vec2(0, .005)) - fbm(uv * 5.0 - vec2(0, .005)),
+    .02
+  ));
+
+  // Multiple lights
+  vec3 L0 = normalize(vec3(sin(uTime) * 3.0, cos(uTime * .7) * 3.0, 4.0) - vec3(uv * 4.0 - 2.0, 2.0));
+  vec3 L1 = normalize(vec3(cos(uTime * 1.3) * 2.0, sin(uTime * .5) * 2.0, 3.0) - vec3(uv * 3.0 - 1.0, 1.5));
+  float dif = max(dot(N, L0), 0.0) * .35 + max(dot(N, L1), 0.0) * .15;
+  float sp = pow(max(dot(reflect(-L0, N), vec3(0, 0, 1)), 0.0), 64.0) * .4;
+  float ao = 1.0 - n2 * .45;
+
+  vec3 metal = mix(
+    mix(vec3(.8, .5, .2), vec3(.2, .5, .9), sin(uv.x * 25.0 + n0 * 3.0) * .5 + .5),
+    mix(vec3(.3, .6, .4), vec3(.7, .3, .5), cos(uv.y * 25.0 + n1 * 3.0) * .5 + .5),
+    n3
+  );
+
+  vec3 col = mix(vec3(.05, .06, .09), metal, .4 + n0 * .5);
+  col += dif * vec3(1.0, .85, .6) * ao;
+  col += sp * vec3(1.0, .9, .7);
+  col += vol * vec3(1.0, .95, .85);
+  col += n0 * vec3(.15, .1, .25) * .2;
+  col += n1 * vec3(.05, .15, .1) * .12;
+  col += n2 * vec3(.2, .05, .1) * .12;
+  col += n3 * vec3(.1, .08, .2) * .08;
+  col += hash(uv * uRes + uTime) * .02;
+  col *= 1.0 - length(vUV - .5) * .35;
+
+  // HDR tone mapping
+  col = (col * (2.51 * col + .03)) / (col * (2.43 * col + .59) + .14);
+  col = pow(col, vec3(1. / 2.2));
+  o = vec4(col, 1.0);
+}
+`
+
+// ─── Phase 3: Compute / Shader Math ─────────────────────
+async function runComputePhase(
+  canvas: HTMLCanvasElement,
+  durationMs: number,
+): Promise<PhaseResult> {
+  const quadUV = new Float32Array([-1, -1, 0, 0, 1, -1, 1, 0, -1, 1, 0, 1, 1, 1, 1, 1])
+
+  return runPhase(
+    canvas,
+    {
+      width: 3840,
+      height: 2160,
+      setupGL(gl) {
+        const vs = gl.createShader(gl.VERTEX_SHADER)!
+        gl.shaderSource(vs, COMP_VERT)
+        gl.compileShader(vs)
+
+        const fs = gl.createShader(gl.FRAGMENT_SHADER)!
+        gl.shaderSource(fs, COMP_FRAG)
+        gl.compileShader(fs)
+
+        const prog = gl.createProgram()!
+        gl.attachShader(prog, vs)
+        gl.attachShader(prog, fs)
+        gl.linkProgram(prog)
+        gl.useProgram(prog)
+
+        const buf = gl.createBuffer()!
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf)
+        gl.bufferData(gl.ARRAY_BUFFER, quadUV, gl.STATIC_DRAW)
+
+        const aP = gl.getAttribLocation(prog, 'aP')
+        gl.enableVertexAttribArray(aP)
+        gl.vertexAttribPointer(aP, 2, gl.FLOAT, false, 16, 0)
+
+        const aUV = gl.getAttribLocation(prog, 'aUV')
+        gl.enableVertexAttribArray(aUV)
+        gl.vertexAttribPointer(aUV, 2, gl.FLOAT, false, 16, 8)
+
+        gl.uniform2f(gl.getUniformLocation(prog, 'uRes'), 3840, 2160)
+
+        ;(gl as any).__uTime = gl.getUniformLocation(prog, 'uTime')
+      },
+      drawFrame(gl, now, draws) {
+        gl.uniform1f((gl as any).__uTime, now * 0.001 + draws * 0.005)
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+      },
+      computeMetric(totalDraws, w, h, elapsed) {
+        const mpix = (w * h * totalDraws) / 1_000_000
+        return {
+          phase: 'compute',
+          metric: 'computeMPix',
+          value: Math.round(mpix / elapsed),
+        }
+      },
+    },
+    durationMs,
+  )
+}
+
 // ─── Exports ─────────────────────────────────────────────
 export function useGpuBenchmark() {
   const benchmark = useBenchmarkStore()
